@@ -39,19 +39,29 @@ hubbie reads both HubSpot CLI login layouts: the single `auth.json` and `account
 | --- | --- |
 | `RP_HUBSPOT_PROFILES` | Profiles root. Default `~/.config/hubbie/profiles`. |
 | `RP_HUBSPOT_BIN` | Path to the `hubspot` executable. Default: `hubspot` on `PATH`. |
-| `HUBBIE_SECRET_COMMAND` | Command that prints a secret, see below. Unset means the environment provider. |
+| `HUBBIE_SECRET_COMMAND` | Command that prints a secret, see below. Required for `--service-key`. |
 
 ## Secret providers
 
 `--service-key` runs `hubspot whoami` with the key first and refuses unless the key's portal matches the expected portal. The key stays in memory, reaches `hubspot` only through its environment as `HUBSPOT_ACCESS_TOKEN`, and is masked in anything hubbie prints.
 
-- **Environment provider** (default): reads the variable named by `service-key set` from hubbie's own environment.
-- **Command provider**: set `HUBBIE_SECRET_COMMAND` to a command that prints the secret on stdout. It runs without a shell, and `{name}` is replaced with the secret name. For a tool that injects secrets into a child's environment, end the command with `printenv {name}`:
+hubbie has no built-in vault. Set `HUBBIE_SECRET_COMMAND` to a command that prints the secret on stdout. The command runs without a shell. Each `{name}` becomes the secret name from `service-key set`. For a vault that injects secrets into a child process, end the command with `printenv {name}`:
 
 ```
 export HUBBIE_SECRET_COMMAND='my-vault read {name}'
 export HUBBIE_SECRET_COMMAND='my-injector run +{name} -- printenv {name}'
 ```
+
+For an environment secret, set the named variable and select `printenv` explicitly:
+
+```
+export ACME_TOKEN='your-service-key'
+export HUBBIE_SECRET_COMMAND='printenv {name}'
+```
+
+If `HUBBIE_SECRET_COMMAND` is unset, service-key commands refuse to run. The command line never selects the environment provider implicitly.
+
+If you use a profile login, unset `HUBSPOT_ACCESS_TOKEN` first. hubbie refuses inherited tokens for ordinary commands, repair commands, and login. Service-key commands replace inherited tokens with the fetched key.
 
 ## Tests
 

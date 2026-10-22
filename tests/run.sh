@@ -36,7 +36,8 @@ exit "${FAKE_EXIT:-0}"
 FAKE
 chmod +x "$tmp/bin/hubspot"
 export CAPTURE_HOME=$tmp/captured-home CAPTURE_ARGS=$tmp/captured-args CAPTURE_STDIN=$tmp/captured-stdin
-wrapper=$repo/bin/hubbie; export HUBBIE_SECRET_COMMAND='av inject +{name} -- printenv {name}'
+wrapper=$repo/bin/hubbie
+export HUBBIE_SECRET_COMMAND='fake-injector inject +{name} -- printenv {name}'
 
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 expect_failure() {
@@ -125,22 +126,22 @@ grep -q 'not logged in' "$tmp/err" || fail 'unreadable hub_id accepted'
 ! grep -q 'secret' "$tmp/err" || fail 'diagnostic leaked token'
 
 # service-key mode (secret command provider)
-cat > "$tmp/bin/av" <<'FAKE'
+cat > "$tmp/bin/fake-injector" <<'FAKE'
 #!/usr/bin/env bash
 set -euo pipefail
 [[ $1 == inject && $2 == +* ]] || exit 64
 key=${2#+}; shift 2
 [[ $1 == -- ]] && shift
-printf '%s\n' "$key" > "$CAPTURE_AV_KEY"
+printf '%s\n' "$key" > "$CAPTURE_SECRET_NAME"
 export "$key=fake-injected-secret-value"
 exec "$@"
 FAKE
-chmod +x "$tmp/bin/av"
+chmod +x "$tmp/bin/fake-injector"
 cat > "$tmp/bin/hubspot" <<'FAKE'
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ ${1-} == whoami ]]; then
-  printf 'User:    a@example.com\nPortal:  %s\n' "${FAKE_SK_PORTAL:-1000001}"
+  printf '{"portalId":%s}\n' "${FAKE_SK_PORTAL:-1000001}"
   [[ -z ${FAKE_LEAK:-} ]] || printf '%s\n' "$HUBSPOT_ACCESS_TOKEN"
   exit 0
 fi
@@ -149,7 +150,7 @@ printf '%s\n' "$HUBSPOT_ACCESS_TOKEN" > "$CAPTURE_TOKEN"
 exit "${FAKE_EXIT:-0}"
 FAKE
 chmod +x "$tmp/bin/hubspot"
-export CAPTURE_AV_KEY=$tmp/av-key CAPTURE_TOKEN=$tmp/token
+export CAPTURE_SECRET_NAME=$tmp/secret-name CAPTURE_TOKEN=$tmp/token
 secret=fake-injected-secret-value
 no_secret() { ! grep -q "$secret" "$tmp/out" "$tmp/err" || fail 'injected secret leaked'; }
 
@@ -170,7 +171,7 @@ no_secret
 
 "$wrapper" acme --service-key objects search 'two words' --limit 3 > "$tmp/out" 2> "$tmp/err"
 [[ $(cat "$CAPTURE_ARGS") == $'objects\nsearch\ntwo words\n--limit\n3' ]] || fail 'service-key arguments changed'
-[[ $(<"$CAPTURE_AV_KEY") == ACME_SERVICE_KEY ]] || fail 'wrong secret name requested'
+[[ $(<"$CAPTURE_SECRET_NAME") == ACME_SERVICE_KEY ]] || fail 'wrong secret name requested'
 [[ $(<"$CAPTURE_TOKEN") == "$secret" ]] || fail 'token not passed to hubspot'
 no_secret
 if FAKE_EXIT=41 "$wrapper" acme --service-key objects list > "$tmp/out" 2> "$tmp/err"; then fail 'service exit swallowed'; else

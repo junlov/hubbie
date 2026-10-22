@@ -5,14 +5,14 @@ repo=$(cd "$(dirname "$0")/.." && pwd -P)
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 export RP_HUBSPOT_PROFILES=$tmp/profiles
-export HUBBIE_SECRET_COMMAND='av inject +{name} -- printenv {name}'
+export HUBBIE_SECRET_COMMAND='fake-injector inject +{name} -- printenv {name}'
 export PATH=$tmp/bin:$PATH
 export RP_HUBSPOT_BIN=$tmp/bin/hubspot
 export CAPTURE_CALLS=$tmp/calls
 mkdir -p "$tmp/bin" "$RP_HUBSPOT_PROFILES/acme"
 printf '1000001\n' > "$RP_HUBSPOT_PROFILES/acme/portal-id"
 
-cat > "$tmp/bin/av" <<'FAKE'
+cat > "$tmp/bin/fake-injector" <<'FAKE'
 #!/usr/bin/env bash
 set -euo pipefail
 [[ $1 == inject && $2 == +* && $3 == -- ]] || exit 64
@@ -26,10 +26,10 @@ set -euo pipefail
 [[ ${HUBSPOT_ACCESS_TOKEN-} == fake-injected-secret-value ]] || exit 65
 printf '%s\n' "$*" >> "$CAPTURE_CALLS"
 if [[ $1 == whoami ]]; then
-  printf 'Portal: 1000001\n'
+  printf '{"portalId":1000001}\n'
 fi
 FAKE
-chmod +x "$tmp/bin/av" "$tmp/bin/hubspot"
+chmod +x "$tmp/bin/fake-injector" "$tmp/bin/hubspot"
 
 for key in HUBSPOT_ACCESS_TOKEN name expected binary profile client who actual _hubspot_service_token; do
   "$repo/bin/hubbie" acme service-key set "$key" > "$tmp/out" 2> "$tmp/err"

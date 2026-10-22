@@ -10,7 +10,11 @@ import (
 
 func newProfile(t *testing.T) Profile {
 	t.Helper()
-	return Profile{Client: "acme", Dir: t.TempDir()}
+	dir := filepath.Join(t.TempDir(), "profiles[dev]*?", "acme")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return Profile{Client: "acme", Dir: dir}
 }
 
 func writeAuth(t *testing.T, path, body string) {
@@ -139,7 +143,16 @@ func TestRetireLegacyAuth(t *testing.T) {
 	if _, err := os.Stat(p.LegacyAuthFile()); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("legacy file still in place")
 	}
-	backups, _ := filepath.Glob(p.LegacyAuthFile() + ".legacy.*")
+	entries, err := os.ReadDir(p.ConfigDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var backups []string
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "auth.json.legacy.") {
+			backups = append(backups, filepath.Join(p.ConfigDir(), entry.Name()))
+		}
+	}
 	if len(backups) != 1 {
 		t.Fatalf("want one backup, got %v", backups)
 	}

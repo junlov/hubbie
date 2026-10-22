@@ -4,6 +4,9 @@ import "testing"
 
 func TestWhoamiPortal(t *testing.T) {
 	tests := map[string]string{
+		`{"portalId":1000001}`:                       "1000001",
+		`{"portalId":"1000001"}`:                     "1000001",
+		`{"portalId":"abc"}`:                         "",
 		"User:    a@example.com\nPortal:  1000001\n": "1000001",
 		"  Portal: 7 (sandbox)\n":                    "7",
 		`{"portal_id":123}`:                          "123",

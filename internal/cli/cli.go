@@ -8,8 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/spf13/cobra"
 )
 
 const (
@@ -73,25 +71,12 @@ func (a *App) profilesRoot() string {
 // Run executes the command line and returns the exit code.
 func (a *App) Run(args []string) int {
 	a.errw = a.Stderr
-	root := &cobra.Command{
-		Use:                "hubbie",
-		Args:               cobra.ArbitraryArgs,
-		DisableFlagParsing: true,
-		SilenceUsage:       true,
-		SilenceErrors:      true,
-		RunE:               func(_ *cobra.Command, args []string) error { return a.client(args) },
+	var err error
+	if len(args) > 0 && args[0] == "list" {
+		err = a.list(args[1:])
+	} else {
+		err = a.client(args)
 	}
-	root.CompletionOptions.DisableDefaultCmd = true
-	root.SetHelpCommand(&cobra.Command{Use: "no-help", Hidden: true})
-	root.AddCommand(&cobra.Command{
-		Use:                "list",
-		Short:              "List profiles",
-		Args:               cobra.ArbitraryArgs,
-		DisableFlagParsing: true,
-		RunE:               func(_ *cobra.Command, args []string) error { return a.list(args) },
-	})
-	root.SetArgs(args)
-	err := root.Execute()
 	code := 0
 	if err != nil {
 		code = 1

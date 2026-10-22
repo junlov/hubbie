@@ -40,7 +40,7 @@ fi
 FAKE
 chmod +x "$tmp/bin/hubspot"
 export RP_HUBSPOT_BIN=${RP_HUBSPOT_TEST_BIN:-$tmp/bin/hubspot}
-wrapper=$repo/bin/hubbie; export HUBBIE_SECRET_COMMAND='av inject +{name} -- printenv {name}'
+wrapper=$repo/bin/hubbie
 
 seed() {
   local client=$1 portal=$2 layout=$3 file

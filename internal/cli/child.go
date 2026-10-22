@@ -69,16 +69,22 @@ func runChild(bin string, args, env []string) error {
 	cmd.Env = env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	sigs := make(chan os.Signal, 8)
-	signal.Notify(sigs)
-	defer signal.Stop(sigs)
+	signal.Notify(sigs,
+		syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGABRT,
+		syscall.SIGALRM, syscall.SIGTERM, syscall.SIGUSR1, syscall.SIGUSR2,
+		syscall.SIGPIPE, syscall.SIGCONT, syscall.SIGIO, syscall.SIGXCPU,
+		syscall.SIGXFSZ, syscall.SIGVTALRM, syscall.SIGWINCH,
+	)
+	defer func() {
+		signal.Stop(sigs)
+		close(sigs)
+	}()
 	if err := cmd.Start(); err != nil {
 		return die("cannot run %s: %v", bin, err)
 	}
 	go func() {
 		for s := range sigs {
-			if s != syscall.SIGCHLD && s != syscall.SIGURG {
-				_ = cmd.Process.Signal(s)
-			}
+			_ = cmd.Process.Signal(s)
 		}
 	}()
 	err := cmd.Wait()
@@ -112,7 +118,7 @@ func whoamiPortal(out []byte) string {
 		return ""
 	}
 	data, _ := doc["data"].(map[string]any)
-	for _, v := range []any{doc["portal_id"], doc["portal"], doc["hub_id"], data["portal_id"], data["portal"]} {
+	for _, v := range []any{doc["portalId"], doc["portal_id"], doc["portal"], doc["hub_id"], data["portal_id"], data["portal"]} {
 		var s string
 		switch t := v.(type) {
 		case nil:

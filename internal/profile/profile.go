@@ -131,11 +131,12 @@ func authPortal(path string) (string, bool) {
 // accountPortals lists the distinct portals found under accounts/*/auth.json,
 // sorted numerically.
 func (p Profile) accountPortals() []string {
-	files, _ := filepath.Glob(filepath.Join(p.ConfigDir(), "accounts", "*", "auth.json"))
+	accounts := filepath.Join(p.ConfigDir(), "accounts")
+	entries, _ := os.ReadDir(accounts)
 	seen := map[string]bool{}
 	var out []string
-	for _, f := range files {
-		if portal, ok := authPortal(f); ok && !seen[portal] {
+	for _, entry := range entries {
+		if portal, ok := authPortal(filepath.Join(accounts, entry.Name(), "auth.json")); ok && !seen[portal] {
 			seen[portal] = true
 			out = append(out, portal)
 		}

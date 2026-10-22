@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/junlov/hubbie/internal/profile"
 	"github.com/junlov/hubbie/internal/secret"
@@ -50,6 +51,11 @@ func (a *App) client(args []string) error {
 	}
 	if service {
 		return a.serviceCommand(p, expected, args)
+	}
+	for _, entry := range a.Env {
+		if strings.HasPrefix(entry, "HUBSPOT_ACCESS_TOKEN=") && entry != "HUBSPOT_ACCESS_TOKEN=" {
+			return die("unset HUBSPOT_ACCESS_TOKEN before using a profile login; use --service-key for service-key commands")
+		}
 	}
 
 	portalArg := ""
@@ -191,10 +197,10 @@ func (a *App) setSecretName(p profile.Profile, args []string) error {
 }
 
 // provider picks the secret provider from the environment.
-func (a *App) provider() (secret.Provider, error) {
+func (a *App) provider(name string) (secret.Provider, error) {
 	cmdline := a.getenv(envSecretCommand)
 	if cmdline == "" {
-		return secret.NewEnv(), nil
+		return nil, die("--service-key requires HUBBIE_SECRET_COMMAND; set it to a secret-fetching command, or set %s and HUBBIE_SECRET_COMMAND='printenv {name}'", name)
 	}
 	argv, err := secret.ParseCommand(cmdline)
 	if err != nil {
@@ -222,7 +228,7 @@ func (a *App) serviceCommand(p profile.Profile, expected string, args []string) 
 	if !profile.ValidSecretName(name) {
 		return die("invalid secret name in %s", p.SecretNameFile())
 	}
-	prov, err := a.provider()
+	prov, err := a.provider(name)
 	if err != nil {
 		return err
 	}
