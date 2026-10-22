@@ -41,6 +41,10 @@ printf 'HOME=%s\nTOKEN=%s\nCOMMAND=%s\n' "$HOME" "${HUBSPOT_ACCESS_TOKEN-}" "$*"
 if [ "$1" = whoami ]; then
   printf '{"portalId":%s}\n' "${HUBBIE_TEST_PORTAL:-123}"
 elif [ "$1" = auth ] && [ "$2" = login ]; then
+  if [ "${3-}" = url ]; then
+    printf 'https://example.com/authorize\n'
+    exit "${HUBBIE_TEST_URL_EXIT:-0}"
+  fi
   case "$(uname -s)" in
     Darwin) cfg="$HOME/Library/Application Support/hubspot" ;;
     *) cfg="$HOME/.config/hubspot" ;;
@@ -223,6 +227,55 @@ func TestReviewClientDispatch(t *testing.T) {
 		var exit *exec.ExitError
 		if !errors.As(err, &exit) || exit.ExitCode() != 2 || !strings.Contains(string(out), "Usage:") {
 			t.Fatalf("usage changed: %v %s", err, out)
+		}
+	}
+}
+
+func TestReviewLoginURL(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		for _, code := range []string{"0", "37"} {
+			name := "fresh/" + code
+			if existing {
+				name = "recorded/" + code
+			}
+			t.Run(name, func(t *testing.T) {
+				f := newReviewCLI(t)
+				p := profile.Profile{Client: "acme", Dir: filepath.Join(f.root, "acme")}
+				if existing {
+					writeReviewFile(t, p.PortalFile(), "123\n", 0o600)
+				}
+				f.env = withEnv(f.env, "HUBBIE_TEST_URL_EXIT="+code)
+				out, err := f.command(t, "acme", "auth", "login", "url", "--portal", "123").CombinedOutput()
+				if code == "0" {
+					if err != nil {
+						t.Fatalf("URL generation failed: %v %s", err, out)
+					}
+				} else {
+					var exit *exec.ExitError
+					if !errors.As(err, &exit) || exit.ExitCode() != 37 {
+						t.Fatalf("child exit code changed: %v %s", err, out)
+					}
+				}
+				if string(out) != "https://example.com/authorize\n" {
+					t.Fatalf("URL output changed: %s", out)
+				}
+				calls, err := os.ReadFile(f.capture)
+				want := "HOME=" + p.Dir + "\nTOKEN=\nCOMMAND=auth login url\n"
+				if err != nil || string(calls) != want {
+					t.Fatalf("wrong child environment or arguments: %v %s", err, calls)
+				}
+				portal, err := p.Expected()
+				wantPortal := ""
+				if existing {
+					wantPortal = "123"
+				}
+				if err != nil || portal != wantPortal {
+					t.Fatalf("URL generation changed expected portal: %q %v", portal, err)
+				}
+				if _, err := p.CachedLogin(); !errors.Is(err, profile.ErrNoLogin) {
+					t.Fatalf("URL generation created a login: %v", err)
+				}
+			})
 		}
 	}
 }

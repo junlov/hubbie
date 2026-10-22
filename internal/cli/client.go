@@ -100,7 +100,8 @@ func (a *App) client(args []string) error {
 		return die("%v", err)
 	}
 	env := withEnv(a.Env, "HOME="+p.Dir)
-	if !login {
+	// URL generation does not complete login or create a login cache.
+	if !login || (len(args) >= 3 && args[2] == "url") {
 		return a.exec(bin, args, env)
 	}
 
