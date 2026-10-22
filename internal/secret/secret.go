@@ -1,4 +1,4 @@
-// Package secret fetches a named secret without ever printing it.
+// Package secret provides secret retrieval and output redaction.
 package secret
 
 import (

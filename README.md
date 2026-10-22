@@ -1,12 +1,17 @@
 # hubbie
 
-Per-client logins for the HubSpot CLI. One static binary, no runtime dependencies besides the `hubspot` CLI itself.
+Per-client logins for the HubSpot CLI. Profile logins need only the static hubbie binary and the `hubspot` CLI. Service keys also need a [secret provider](#secret-providers).
 
-hubbie gives each client a private profile folder and runs `hubspot` with `HOME` pointed at it, so logins never mix. Before it runs a command, it checks that the cached login belongs to the portal you recorded for that client, and refuses when it does not.
+hubbie gives each client a private profile folder and runs `hubspot` with `HOME` pointed at it. Before ordinary profile commands, hubbie compares the cached login with the recorded portal. If the portals differ, hubbie refuses to run the command.
 
 ## Install
 
-Download the binary for your platform from the [releases page](https://github.com/junlov/hubbie/releases), make it executable, and put it on your `PATH`. To build from source, run `CGO_ENABLED=0 go build -o hubbie .` with Go 1.27 or later.
+Download the binary for your platform from the [releases page](https://github.com/junlov/hubbie/releases).
+Make it executable.
+Put it on your `PATH`.
+
+For the minimum Go version, see [go.mod](go.mod).
+To build from source, run `CGO_ENABLED=0 go build -o hubbie .`.
 
 ## Use
 
@@ -18,20 +23,26 @@ hubbie acme service-key set ACME_TOKEN        # name the secret to use with --se
 hubbie acme --service-key objects list        # run with a service key instead of the login
 ```
 
-Client names are lowercase letters, digits, and single hyphens. Everything after the client name goes to `hubspot` unchanged, and stdin, signals, and the exit code pass through. `auth` and `whoami` skip the portal guard so you can repair a login.
+Client names contain lowercase letters and digits, with single hyphens between groups. The name `list` is reserved for the profile listing command.
+
+hubbie handles `service-key set` and `--service-key` itself. During `auth login`, it also consumes `--portal <id>` or `--portal=<id>` instead of forwarding it. Other arguments, stdin, signals, and the child exit code pass through. `auth` and `whoami` skip the cached portal comparison so you can repair a login.
+
+The first login requires `--portal`. hubbie records the expected portal only after a successful login with a matching cached portal. `auth login url` only generates a URL and does not record the expected portal or complete login.
 
 ## Profile layout
 
-Each profile is a folder under the profiles root:
+Each profile folder is the child process HOME:
 
 ```
 <profiles root>/<client>/
   portal-id             expected portal, digits only
   service-key-name      secret name set by `service-key set`
-  <HubSpot CLI config>  the child's HOME; holds the login
+  <HubSpot CLI config>  holds the login at the platform path below
 ```
 
-hubbie reads both HubSpot CLI login layouts: the single `auth.json` and `accounts/<portal>/auth.json` (CLI 0.16.0 and later). If the per-portal folder holds more than one portal, hubbie refuses to run. If both layouts disagree, the per-portal file wins.
+hubbie reads both HubSpot CLI login layouts: the single `auth.json` and `accounts/<portal>/auth.json` (CLI 0.16.0 and later). These paths are relative to the HubSpot configuration folder inside the profile HOME. On macOS, this folder is `Library/Application Support/hubspot`. On other platforms, it is `.config/hubspot`.
+
+If the per-portal layout contains more than one distinct readable portal, hubbie refuses ordinary profile commands. If both layouts disagree, the per-portal file wins. Before profile commands, hubbie renames an existing legacy `auth.json` to `auth.json.legacy.*` when a readable per-portal login exists. This backup prevents the HubSpot CLI from importing the legacy login as another account.
 
 ## Environment variables
 
@@ -43,9 +54,11 @@ hubbie reads both HubSpot CLI login layouts: the single `auth.json` and `account
 
 ## Secret providers
 
-`--service-key` runs `hubspot whoami` with the key first and refuses unless the key's portal matches the expected portal. The key stays in memory, reaches `hubspot` only through its environment as `HUBSPOT_ACCESS_TOKEN`, and is masked in anything hubbie prints.
+`--service-key` runs `hubspot whoami` with the key first and refuses unless the key's portal matches the expected portal. This mode refuses `auth` commands. The key stays in memory and reaches `hubspot` through its environment as `HUBSPOT_ACCESS_TOKEN`.
 
-hubbie has no built-in vault. Set `HUBBIE_SECRET_COMMAND` to a command that prints the secret on stdout. The command runs without a shell. Each `{name}` becomes the secret name from `service-key set`. For a vault that injects secrets into a child process, end the command with `printenv {name}`:
+hubbie masks the fetched key in its own diagnostics after retrieval. Secret provider stderr and final HubSpot command output go directly to the terminal without this filter.
+
+hubbie has no built-in vault. Set `HUBBIE_SECRET_COMMAND` to a command that prints the secret on stdout. hubbie splits the command on whitespace and runs it without a shell. Shell quoting, variable expansion, and pipelines are unavailable. Each `{name}` becomes the secret name from `service-key set`. For a vault that injects secrets into a child process, end the command with `printenv {name}`:
 
 ```
 export HUBBIE_SECRET_COMMAND='my-vault read {name}'

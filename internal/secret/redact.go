@@ -15,7 +15,7 @@ type Redactor struct {
 	carry  []byte
 }
 
-// NewRedactor returns w unchanged when secret is empty.
+// NewRedactor wraps w and passes writes through unchanged when secret is empty.
 func NewRedactor(w io.Writer, secret string) *Redactor {
 	return &Redactor{w: w, secret: []byte(secret)}
 }
