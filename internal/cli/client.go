@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
+	"github.com/joho/godotenv"
 	"github.com/junlov/hubbie/internal/profile"
 	"github.com/junlov/hubbie/internal/secret"
 )
@@ -52,10 +54,8 @@ func (a *App) client(args []string) error {
 	if service {
 		return a.serviceCommand(p, expected, args)
 	}
-	for _, entry := range a.Env {
-		if strings.HasPrefix(entry, "HUBSPOT_ACCESS_TOKEN=") && entry != "HUBSPOT_ACCESS_TOKEN=" {
-			return die("unset HUBSPOT_ACCESS_TOKEN before using a profile login; use --service-key for service-key commands")
-		}
+	if err := a.profileCredentials(p); err != nil {
+		return err
 	}
 
 	portalArg := ""
@@ -124,6 +124,30 @@ func (a *App) client(args []string) error {
 	if expected == "" {
 		if err := os.WriteFile(p.PortalFile(), []byte(target+"\n"), 0o600); err != nil {
 			return die("%v", err)
+		}
+	}
+	return nil
+}
+
+func (a *App) profileCredentials(p profile.Profile) error {
+	for _, entry := range a.Env {
+		if strings.HasPrefix(entry, "HUBSPOT_ACCESS_TOKEN=") && entry != "HUBSPOT_ACCESS_TOKEN=" {
+			return die("unset HUBSPOT_ACCESS_TOKEN before using a profile login; use --service-key for service-key commands")
+		}
+	}
+	for _, path := range []string{
+		filepath.Join(p.Dir, ".hubspot", ".env"),
+		filepath.Join(p.Dir, ".config", "hubspot", ".env"),
+	} {
+		values, err := godotenv.Read(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return die("cannot read profile environment file %s. Remove or repair it before using a profile login", path)
+		}
+		if _, ok := values["HUBSPOT_ACCESS_TOKEN"]; ok {
+			return die("remove HUBSPOT_ACCESS_TOKEN from %s before using a profile login. Use --service-key for service-key commands", path)
 		}
 	}
 	return nil

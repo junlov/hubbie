@@ -98,24 +98,103 @@ func requireNoReviewChild(t *testing.T, f reviewCLI) {
 }
 
 func TestReviewCredentialIsolation(t *testing.T) {
-	for _, args := range [][]string{
-		{"objects", "list"}, {"auth", "login", "--portal", "123"}, {"auth", "logout"}, {"whoami"},
-	} {
-		t.Run(strings.Join(args, "-"), func(t *testing.T) {
-			f := newReviewCLI(t)
-			p := f.seed(t, "acme")
-			writeReviewFile(t, p.LegacyAuthFile(), `{"hub_id":456}`, 0o600)
-			f.env = withEnv(f.env, "HUBSPOT_ACCESS_TOKEN=ambient-secret")
-			out, err := f.command(t, append([]string{"acme"}, args...)...).CombinedOutput()
-			if err == nil || !strings.Contains(string(out), "unset HUBSPOT_ACCESS_TOKEN") || strings.Contains(string(out), "ambient-secret") {
-				t.Fatalf("unexpected refusal: %v %s", err, out)
-			}
-			requireNoReviewChild(t, f)
-			if _, err := os.Stat(p.LegacyAuthFile()); err != nil {
-				t.Fatalf("refused command changed login files: %v", err)
-			}
-		})
+	for _, source := range []string{"environment", ".hubspot/.env", ".config/hubspot/.env"} {
+		for _, args := range [][]string{
+			{"objects", "list"}, {"auth", "login", "--portal", "123"}, {"auth", "logout"}, {"whoami"},
+		} {
+			t.Run(source+"/"+strings.Join(args, "-"), func(t *testing.T) {
+				f := newReviewCLI(t)
+				p := f.seed(t, "acme")
+				writeReviewFile(t, p.LegacyAuthFile(), `{"hub_id":456}`, 0o600)
+				if source == "environment" {
+					f.env = withEnv(f.env, "HUBSPOT_ACCESS_TOKEN=ambient-secret")
+				} else {
+					f.env = without(f.env, "HUBSPOT_ACCESS_TOKEN")
+					writeReviewFile(t, filepath.Join(p.Dir, source), "HUBSPOT_ACCESS_TOKEN=ambient-secret\n", 0o600)
+				}
+				out, err := f.command(t, append([]string{"acme"}, args...)...).CombinedOutput()
+				if err == nil || !strings.Contains(string(out), "HUBSPOT_ACCESS_TOKEN") || strings.Contains(string(out), "ambient-secret") {
+					t.Fatalf("unexpected refusal: %v %s", err, out)
+				}
+				requireNoReviewChild(t, f)
+				if data, err := os.ReadFile(p.LegacyAuthFile()); err != nil || string(data) != `{"hub_id":456}` {
+					t.Fatalf("refused command changed login files: %v %s", err, data)
+				}
+			})
+		}
 	}
+}
+
+func TestReviewProfileEnvFiles(t *testing.T) {
+	for _, source := range []string{".hubspot/.env", ".config/hubspot/.env"} {
+		for _, tc := range []struct {
+			name    string
+			content string
+			blocked bool
+		}{
+			{"unquoted", "HUBSPOT_ACCESS_TOKEN=profile-secret\n", true},
+			{"export", "export HUBSPOT_ACCESS_TOKEN = 'profile-secret'\n", true},
+			{"double quotes and CRLF", " \tHUBSPOT_ACCESS_TOKEN = \"profile-secret\" # token\r\n", true},
+			{"multiline", "HUBSPOT_ACCESS_TOKEN=\"profile-secret\nsecond-line\"\n", true},
+			{"indirect", "TOKEN=profile-secret\nHUBSPOT_ACCESS_TOKEN=${TOKEN}\n", true},
+			{"empty declaration", "HUBSPOT_ACCESS_TOKEN=\n", true},
+			{"comment", "# HUBSPOT_ACCESS_TOKEN=profile-secret\nOTHER=value\n", false},
+			{"unrelated value", "NOTE=\"HUBSPOT_ACCESS_TOKEN=profile-secret\"\n", false},
+			{"empty file", "", false},
+			{"malformed", "OTHER='profile-secret\n", true},
+			{"directory", "", true},
+		} {
+			t.Run(source+"/"+tc.name, func(t *testing.T) {
+				f := newReviewCLI(t)
+				p := f.seed(t, "acme")
+				f.env = without(f.env, "HUBSPOT_ACCESS_TOKEN")
+				path := filepath.Join(p.Dir, source)
+				if tc.name == "directory" {
+					if err := os.MkdirAll(path, 0o700); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					writeReviewFile(t, path, tc.content, 0o600)
+				}
+				out, err := f.command(t, "acme", "objects", "list").CombinedOutput()
+				if strings.Contains(string(out), "profile-secret") {
+					t.Fatalf("file content leaked: %s", out)
+				}
+				if tc.blocked {
+					if err == nil || !strings.Contains(string(out), path) {
+						t.Fatalf("unsafe input did not block command: %v %s", err, out)
+					}
+					requireNoReviewChild(t, f)
+				} else if err != nil {
+					t.Fatalf("safe input blocked command: %v %s", err, out)
+				} else if _, err := os.Stat(f.capture); err != nil {
+					t.Fatalf("safe input did not reach child: %v", err)
+				}
+				if tc.name != "directory" {
+					if data, err := os.ReadFile(path); err != nil || string(data) != tc.content {
+						t.Fatalf("profile environment file changed: %v %s", err, data)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestReviewProfileEnvMetadata(t *testing.T) {
+	f := newReviewCLI(t)
+	p := f.seed(t, "acme")
+	writeReviewFile(t, filepath.Join(p.Dir, ".hubspot", ".env"), "HUBSPOT_ACCESS_TOKEN=profile-secret\n", 0o600)
+	if out, err := f.command(t, "acme", "service-key", "set", "ACME_KEY").CombinedOutput(); err != nil {
+		t.Fatalf("secret name could not be stored: %v %s", err, out)
+	}
+	if name, ok, err := p.SecretName(); err != nil || !ok || name != "ACME_KEY" {
+		t.Fatalf("wrong secret name: %q %v %v", name, ok, err)
+	}
+	out, err := f.command(t, "list").CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "acme\t123\tyes\tACME_KEY") || strings.Contains(string(out), "profile-secret") {
+		t.Fatalf("list failed: %v %s", err, out)
+	}
+	requireNoReviewChild(t, f)
 }
 
 func TestReviewClientDispatch(t *testing.T) {
@@ -172,6 +251,9 @@ func TestReviewServiceProvider(t *testing.T) {
 			f := newReviewCLI(t)
 			p := f.seed(t, "acme")
 			writeReviewFile(t, p.SecretNameFile(), "ACME_KEY\n", 0o600)
+			for _, source := range []string{".hubspot/.env", ".config/hubspot/.env"} {
+				writeReviewFile(t, filepath.Join(p.Dir, source), "HUBSPOT_ACCESS_TOKEN=profile-secret\n", 0o600)
+			}
 			f.env = withEnv(f.env, "ACME_KEY=fetched-secret", "HUBSPOT_ACCESS_TOKEN=ambient-secret")
 			providerCapture := filepath.Join(filepath.Dir(f.capture), "provider-name")
 			if mode == "environment-command" {

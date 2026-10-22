@@ -63,6 +63,8 @@ If `HUBBIE_SECRET_COMMAND` is unset, service-key commands refuse to run. The com
 
 If you use a profile login, unset `HUBSPOT_ACCESS_TOKEN` first. hubbie refuses inherited tokens for ordinary commands, repair commands, and login. Service-key commands replace inherited tokens with the fetched key.
 
+Profile login commands also refuse token declarations in `<profile HOME>/.hubspot/.env` and `<profile HOME>/.config/hubspot/.env`. Remove `HUBSPOT_ACCESS_TOKEN` from these files before you run a profile login command. Missing files and valid files without this declaration are allowed. If hubbie cannot read or parse either file, it refuses to run the command.
+
 ## Tests
 
 ```
